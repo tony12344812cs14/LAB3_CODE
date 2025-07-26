@@ -25,7 +25,7 @@ class TrainTransformer:
     def prepare_training():
         os.makedirs("transformer_checkpoints", exist_ok=True)
 
-    def train_one_epoch(self):
+    def train_one_epoch(self,train_loader, epoch, args):
         losses = []
         progress = tqdm(enumerate(train_loader))
         self.model.train()
@@ -42,7 +42,7 @@ class TrainTransformer:
         self.writer.add_scalar("loss/train", np.mean(losses), epoch)
         return np.mean(losses)
 
-    def eval_one_epoch(self):
+    def eval_one_epoch(self, val_loader, epoch, args):
         losses = []
         progress = tqdm(enumerate(val_loader))
         self.model.eval()
