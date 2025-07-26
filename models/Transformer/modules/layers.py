@@ -6,6 +6,14 @@ import math
 class MultiHeadAttention(nn.Module):
     def __init__(self, dim=768, num_heads=16, attn_drop=0.1):
         super(MultiHeadAttention, self).__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        
+        self.scale = self.head_dim ** -0.5
+
+        self.to_qkv = nn.Linear(dim, 3 * self.num_heads * self.head_dim, bias=False)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
 
     def forward(self, x):
         ''' Hint: input x tensor shape is (batch_size, num_image_tokens, dim), 
