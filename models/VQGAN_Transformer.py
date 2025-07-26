@@ -34,8 +34,8 @@ class MaskGit(nn.Module):
 ##TODO2 step1-1: input x fed to vqgan encoder to get the latent and zq
     @torch.no_grad()
     def encode_to_z(self, x):
-        raise Exception('TODO2 step1-1!')
-        return None
+        codebook_mapping, codebook_indices, _ = self.vqgan.encode(x)
+        return codebook_mapping, codebook_indices.reshape(codebook_mapping.shape[0], -1)
     
 ##TODO2 step1-2:    
     def gamma_func(self, mode="cosine"):
