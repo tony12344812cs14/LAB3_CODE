@@ -41,7 +41,7 @@ class MaskGIT:
 
         self.model.eval()
         with torch.no_grad():
-            z_indices = None #z_indices: masked tokens (b,16*16)
+            z_indices = self.model.encode_to_z(image[0].unsqueeze(0))[1] #z_indices: masked tokens (b,16*16)
             mask_num = mask_b.sum() #total number of mask token 
             z_indices_predict=z_indices
             mask_bc=mask_b
