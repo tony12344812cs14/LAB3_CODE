@@ -27,7 +27,7 @@ class MaskGit(nn.Module):
     def load_vqgan(configs):
         cfg = yaml.safe_load(open(configs['VQ_config_path'], 'r'))
         model = VQGAN(cfg['model_param'])
-        model.load_state_dict(torch.load(configs['VQ_CKPT_path']), weights_only=False) 
+        model.load_state_dict(torch.load(configs['VQ_CKPT_path'], weights_only=False), strict = True) 
         model = model.eval()
         return model
     
