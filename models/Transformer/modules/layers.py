@@ -8,14 +8,13 @@ class MultiHeadAttention(nn.Module):
         super(MultiHeadAttention, self).__init__()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        
-        self.scale = self.head_dim ** -0.5
+        self.scale_factor = 1/math.sqrt(self.head_dim) 
 
-        self.to_qkv = nn.Linear(dim, 3 * self.num_heads * self.head_dim, bias=False)
+        self.to_qkv = nn.Linear(dim, 3 * self.num_heads * self.head_dim, bias=False)#保持對稱性和簡化計算，去掉bias:b
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
+        self.proj = nn.Linear(dim, dim, bias=True)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor)-> torch.Tensor:
         ''' Hint: input x tensor shape is (batch_size, num_image_tokens, dim), 
             because the bidirectional transformer first will embed each token to dim dimension, 
             and then pass to n_layers of encoders consist of Multi-Head Attention and MLP. 
@@ -23,17 +22,33 @@ class MultiHeadAttention(nn.Module):
             Total d_k , d_v set to 768
             d_k , d_v for one head will be 768//16.
         '''
-        b, n, c = x.shape
+        batch_size, nums_token, token_dim = x.shape
         qkv = self.to_qkv(x)
-        q, k, v = qkv.reshape(b, n, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        qkv = qkv.reshape(batch_size, nums_token, 3, self.num_heads, self.head_dim)
+        query, key, value = qkv.permute(2, 0, 3, 1, 4)
         
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
+        output = self._scaled_dot_product_attention(query, key, value)
         
-        o = (attn @ v).transpose(1, 2).reshape(b, n, c)
-        o = self.proj(o)
-        return o
+        output = output.transpose(1, 2).reshape(batch_size, nums_token, token_dim)
+        output = self.proj(output)
+        return output
+    
+    def _scaled_dot_product_attention(self, q, k, v):
+        """
+        Establish the scaled dot-product attention mechanism.
+
+        Args:
+            q: query tensor of shape (batch_size, num_heads, num_query_tokens, d_k)
+            k: key tensor of shape (batch_size, num_heads, num_key_tokens, d_k)
+            v: value tensor of shape (batch_size, num_heads, num_value_tokens, d_v)
+            
+        Returns:
+            Tensor of shape (batch_size, num_heads, num_query_tokens, d_v)
+            The weighted sum of values after applying attention.
+        """
+        attn = (q @ k.transpose(-2, -1)) * self.scale_factor
+        attn = self.attn_drop(attn.softmax(dim=-1))
+        return attn @ v
 
 class MLP(nn.Sequential):
     def __init__(self, dim=768, hidden_dim=3072, drop_rate=0.1):

@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from utils import LoadTrainData
 import yaml
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 #TODO2 step1-4: design the transformer training strategy
 class TrainTransformer:
@@ -26,39 +27,57 @@ class TrainTransformer:
         os.makedirs("transformer_checkpoints", exist_ok=True)
 
     def train_one_epoch(self,train_loader, epoch, args):
-        losses = []
+        loss_train = []
+        device = args.device
         progress = tqdm(enumerate(train_loader))
         self.model.train()
+
         for i, x in progress:
-            x = x.to(args.device)
+            x = x.to(device)
             logits, z_indices = self.model(x)
-            loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), z_indices.reshape(-1))
+
+            B, N, C = logits.shape
+            loss = F.cross_entropy(logits.view(B * N, C), z_indices.view(B * N))
+
             loss.backward()
-            losses.append(loss.item())
-            if i % args.accum_grad == 0:
+
+            loss_train.append(loss.item())
+            if i % args.accum_grad == 0 or (i + 1) == len(train_loader):
                 self.optim.step()
                 self.optim.zero_grad()
-            progress.set_description_str(f"epoch: {epoch} / {args.epochs}, iter: {i} / {len(train_loader)}, loss: {np.mean(losses)}")
-        self.writer.add_scalar("loss/train", np.mean(losses), epoch)
-        return np.mean(losses)
+            progress.set_description_str(f"epoch: {epoch} / {args.epochs}, iter: {i} / {len(train_loader)}, loss: {np.mean(loss_train):.4f}")
+        self.writer.add_scalar("loss/train", np.mean(loss_train), epoch)
+
+        if self.scheduler is not None:
+            self.scheduler.step()  
+
+        return np.mean(loss_train)
 
     def eval_one_epoch(self, val_loader, epoch, args):
-        losses = []
+        loss_eval = []
+        device = args.device
         progress = tqdm(enumerate(val_loader))
         self.model.eval()
+
+        progress.set_description_str(f"epoch {epoch}/{args.epochs}")
         with torch.no_grad():
             for i, x in progress:
-                x = x.to(args.device)
+                x = x.to(device)
                 logits, z_indices = self.model(x)
-                loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), z_indices.reshape(-1))
-                losses.append(loss.item())
-                progress.set_description_str(f"val_loss: {np.mean(losses)}")
-        self.writer.add_scalar("loss/val", np.mean(losses), epoch)
-        return np.mean(losses)
+                B, N, C = logits.shape
+
+                loss = F.cross_entropy(logits.view(B * N, C), z_indices.view(B * N))
+                loss_eval.append(loss.item())
+
+                progress.set_postfix({'val_loss': f"{np.mean(loss_eval):.4f}"})
+
+        self.writer.add_scalar("loss/val", np.mean(loss_eval), epoch)
+
+        return np.mean(loss_eval)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=args.learning_rate)
-        scheduler = None
+        scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
         return optimizer, scheduler
 
 
@@ -76,10 +95,10 @@ if __name__ == '__main__':
 
     #you can modify the hyperparameters 
     parser.add_argument('--epochs', type=int, default=0, help='Number of epochs to train.')
-    parser.add_argument('--save-per-epoch', type=int, default=1, help='Save CKPT per ** epochs(defcault: 1)')
-    parser.add_argument('--start-from-epoch', type=int, default=0, help='Number of epochs to train.')
-    parser.add_argument('--ckpt-interval', type=int, default=0, help='Number of epochs to train.')
-    parser.add_argument('--learning-rate', type=float, default=0, help='Learning rate.')
+    parser.add_argument('--save-per-epoch', type=int, default=5, help='Save CKPT per ** epochs(defcault: 1)')
+    parser.add_argument('--start-from-epoch', type=int, default=60, help='Number of epochs to train.')
+    parser.add_argument('--ckpt-interval', type=int, default=5, help='Number of epochs to train.')
+    parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate.')
 
     parser.add_argument('--MaskGitConfig', type=str, default='config/MaskGit.yml', help='Configurations for TransformerVQGAN')
 
@@ -104,17 +123,58 @@ if __name__ == '__main__':
                                 pin_memory=True,
                                 shuffle=False)
     
-#TODO2 step1-5:    
+#TODO2 step1-5:
+    def save_checkpoint(model, optimizer, scheduler, epoch, path):
+        torch.save({
+            'epoch': epoch,
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict() if scheduler else None
+        }, path)
+
+    def load_checkpoint(path, model, optimizer=None, scheduler=None, device='cuda:0'):
+        ckpt = torch.load(path, map_location=device)
+        model.load_state_dict(ckpt['model'])
+
+        if optimizer and 'optimizer' in ckpt:
+            optimizer.load_state_dict(ckpt['optimizer'])
+        if scheduler and 'scheduler' in ckpt and ckpt['scheduler'] is not None:
+            scheduler.load_state_dict(ckpt['scheduler'])
+
+        return ckpt.get('epoch', 0)
+    
     best_train = np.inf
     best_val = np.inf
-    for epoch in range(args.start_from_epoch+1, args.epochs+1):
+
+    start_epoch = args.start_from_epoch + 1  
+    if args.start_from_epoch > 0:
+        print(f"[INFO] Loading checkpoint from epoch {args.start_from_epoch}")
+        ckpt_path = "transformer_checkpoints/ckpt_last.pth"
+        start_epoch = load_checkpoint(
+            ckpt_path,
+            train_transformer.model.transformer,
+            train_transformer.optim,
+            train_transformer.scheduler,
+            device=args.device
+        ) + 1
+
+    for epoch in range(start_epoch, args.epochs + 1):
         train_loss = train_transformer.train_one_epoch(train_loader, epoch, args)
         val_loss = train_transformer.eval_one_epoch(val_loader, epoch, args)
-        
+
         if train_loss < best_train:
             best_train = train_loss
-            torch.save(train_transformer.model.transformer.state_dict(), f"transformer_checkpoints/best_train.pth")
+            save_checkpoint(train_transformer.model.transformer, train_transformer.optim,
+                            train_transformer.scheduler, epoch,
+                            "transformer_checkpoints/best_train.pth")
+
         if val_loss < best_val:
             best_val = val_loss
-            torch.save(train_transformer.model.transformer.state_dict(), f"transformer_checkpoints/best_val.pth")
-        torch.save(train_transformer.model.transformer.state_dict(),f"transformer_checkpoints/ckpt_last.pth")
+            save_checkpoint(train_transformer.model.transformer, train_transformer.optim,
+                            train_transformer.scheduler, epoch,
+                            "transformer_checkpoints/best_val.pth")
+            
+        if epoch % args.save_per_epoch == 0:
+            save_checkpoint(train_transformer.model.transformer, train_transformer.optim,
+                        train_transformer.scheduler, epoch,
+                        "transformer_checkpoints/ckpt_last.pth")

@@ -67,9 +67,13 @@ class MaskGit(nn.Module):
     def forward(self, x):
         # x: (b, c, h, w)
         _, z_indices = self.encode_to_z(x)
-        
-        mask_token = torch.ones(z_indices.shape, device=z_indices.device).long() * self.mask_token_id 
-        mask = torch.bernoulli(0.5 * torch.ones(z_indices.shape, device=z_indices.device)).bool()
+        device = z_indices.device
+
+        mask_token = torch.ones(z_indices.shape).long() * self.mask_token_id
+        mask_token = mask_token.to(device) 
+
+        mask = torch.bernoulli(0.5 * torch.ones(z_indices.shape)).bool()
+        mask = mask.to(device)
         
         new_indices = mask * mask_token + (~mask) * z_indices
         logits = self.transformer(new_indices)
@@ -78,34 +82,37 @@ class MaskGit(nn.Module):
         return logits, z_indices
     
 ##TODO3 step1-1: define one iteration decoding   
-    @torch.no_grad()
-    def inpainting(self, z_indices, mask, mask_num, ratio, mask_func):
-        z_indices_with_mask = mask * self.mask_token_id + (~mask) * z_indices
-        logits = self.transformer(z_indices_with_mask)
-        probs = torch.softmax(logits, dim=-1)
-        
-        # make sure the predict token is not mask token
-        z_indices_predict = torch.distributions.categorical.Categorical(logits=logits).sample()
-        while torch.any(z_indices_predict == self.mask_token_id):
-            z_indices_predict = torch.distributions.categorical.Categorical(logits=logits).sample()
-            
-        z_indices_predict = mask * z_indices_predict + (~mask) * z_indices
+@torch.no_grad()
+def inpainting(self, original_tokens, current_mask, total_masked, ratio, mask_func_name):
+    assert original_tokens.shape == current_mask.shape, f"Shape mismatch: tokens {original_tokens.shape}, mask {current_mask.shape}"
 
-        # get prob from predict z_indices
-        z_indices_predict_prob = probs.gather(-1, z_indices_predict.unsqueeze(-1)).squeeze(-1)
-        z_indices_predict_prob = torch.where(mask, z_indices_predict_prob, torch.zeros_like(z_indices_predict_prob) + torch.inf)
+    masked_input_tokens = current_mask * self.mask_token_id + (~current_mask) * original_tokens
+    logits = self.transformer(masked_input_tokens)
+    probs = torch.softmax(logits, dim=-1)
 
-        mask_ratio = self.gamma_func(mask_func)(ratio)
-        
-        mask_len = torch.floor(mask_num * mask_ratio).long()
+    predicted_tokens = torch.distributions.Categorical(logits=logits).sample()
+    while torch.any(predicted_tokens == self.mask_token_id):
+        predicted_tokens = torch.distributions.Categorical(logits=logits).sample()
 
-        g = torch.distributions.gumbel.Gumbel(0, 1).sample(z_indices_predict_prob.shape).to(z_indices_predict_prob.device)
-        temperature = self.choice_temperature * (1 - mask_ratio)
-        confidence = z_indices_predict_prob + temperature * g
-        sorted_confidence = torch.sort(confidence, dim=-1)[0]
-        cut_off = sorted_confidence[:, mask_len].unsqueeze(-1)
-        new_mask = (confidence < cut_off)
-        return z_indices_predict, new_mask
+    predicted_tokens = (current_mask * predicted_tokens + (~current_mask) * original_tokens).clone()
+
+    predicted_probs = probs.gather(-1, predicted_tokens.unsqueeze(-1)).squeeze(-1)
+    predicted_probs = torch.where(current_mask, predicted_probs, torch.full_like(predicted_probs, float('inf')))
+
+    mask_ratio = self.gamma_func(mask_func_name)(ratio)
+    tokens_to_remask = torch.floor(total_masked * mask_ratio).long()
+
+    gumbel_noise = torch.distributions.gumbel.Gumbel(0, 1).sample(predicted_probs.shape).to(predicted_probs.device)
+    temperature = self.choice_temperature * (1 - mask_ratio)
+    noisy_confidence = predicted_probs + temperature * gumbel_noise
+
+
+    sorted_confidence = torch.sort(noisy_confidence, dim=-1)[0]
+    confidence_threshold = sorted_confidence[:, tokens_to_remask].unsqueeze(-1)
+    updated_mask = noisy_confidence < confidence_threshold
+
+    return predicted_tokens, updated_mask
+
     
 __MODEL_TYPE__ = {
     "MaskGit": MaskGit

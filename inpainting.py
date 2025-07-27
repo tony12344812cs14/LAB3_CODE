@@ -11,6 +11,7 @@ import os
 from models import MaskGit as VQGANTransformer
 import yaml
 import torch.nn.functional as F
+from tqdm import tqdm
 
 class MaskGIT:
     def __init__(self, args, MaskGit_CONFIGS):
@@ -120,29 +121,32 @@ if __name__ == '__main__':
     
     
 #TODO3 step1-2: modify the path, MVTM parameters
-    parser.add_argument('--load-transformer-ckpt-path', type=str, default='', help='load ckpt')
+    parser.add_argument('--load-transformer-ckpt-path', type=str, default='transformer_checkpoints/best_ckpt.pt', help='load ckpt')
     
     #dataset path
     parser.add_argument('--test-maskedimage-path', type=str, default='./cat_face/masked_image', help='Path to testing image dataset.')
     parser.add_argument('--test-mask-path', type=str, default='./mask64', help='Path to testing mask dataset.')
     #MVTM parameter
-    parser.add_argument('--sweet-spot', type=int, default=0, help='sweet spot: the best step in total iteration')
-    parser.add_argument('--total-iter', type=int, default=0, help='total step for mask scheduling')
-    parser.add_argument('--mask-func', type=str, default='0', help='mask scheduling function')
+    parser.add_argument('--sweet-spot', type=int, default=10, help='sweet spot: the best step in total iteration')
+    parser.add_argument('--total-iter', type=int, default=12, help='total step for mask scheduling')
+    parser.add_argument('--mask-func', type=str, default='cosine', help='mask scheduling function')
 
     args = parser.parse_args()
 
     t=MaskedImage(args)
     MaskGit_CONFIGS = yaml.safe_load(open(args.MaskGitConfig, 'r'))
     maskgit = MaskGIT(args, MaskGit_CONFIGS)
-    import tqdm
-    i=0
-    for i, (image, mask) in tqdm.tqdm(enumerate(zip(t.mi_ori, t.mask_ori))):
-        image=image.to(device=args.device)
-        mask=mask.to(device=args.device)
-        mask_b=t.get_mask_latent(mask)       
-        maskgit.inpainting(image,mask_b,i)
-        #i+=1
+  
+    masked_images = t.mi_ori
+    binary_masks = t.mask_ori
+
+    for idx, (masked_img, binary_mask) in tqdm(enumerate(zip(masked_images, binary_masks)), desc="Inpainting"):
+        masked_img = masked_img.to(device=args.device)
+        binary_mask = binary_mask.to(device=args.device)
+
+        latent_mask = t.get_mask_latent(binary_mask)
+
+        maskgit.inpainting(masked_img, latent_mask, idx)
         
 
 
