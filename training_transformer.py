@@ -117,3 +117,4 @@ if __name__ == '__main__':
         if val_loss < best_val:
             best_val = val_loss
             torch.save(train_transformer.model.transformer.state_dict(), f"transformer_checkpoints/best_val.pth")
+        torch.save(train_transformer.model.transformer.state_dict(),f"transformer_checkpoints/ckpt_last.pth")
