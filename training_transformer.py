@@ -94,9 +94,9 @@ if __name__ == '__main__':
     parser.add_argument('--accum-grad', type=int, default=10, help='Number for gradient accumulation.')
 
     #you can modify the hyperparameters 
-    parser.add_argument('--epochs', type=int, default=0, help='Number of epochs to train.')
+    parser.add_argument('--epochs', type=int, default=60, help='Number of epochs to train.')
     parser.add_argument('--save-per-epoch', type=int, default=5, help='Save CKPT per ** epochs(defcault: 1)')
-    parser.add_argument('--start-from-epoch', type=int, default=60, help='Number of epochs to train.')
+    parser.add_argument('--start-from-epoch', type=int, default=0, help='Number of epochs to train.')
     parser.add_argument('--ckpt-interval', type=int, default=5, help='Number of epochs to train.')
     parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate.')
 
