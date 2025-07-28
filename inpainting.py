@@ -122,6 +122,7 @@ if __name__ == '__main__':
     
 #TODO3 step1-2: modify the path, MVTM parameters
     parser.add_argument('--load-transformer-ckpt-path', type=str, default='transformer_checkpoints/best_ckpt.pt', help='load ckpt')
+    parser.add_argument('--predicted-path', type=str, default='./results', help='Path to save predicted images.')
     
     #dataset path
     parser.add_argument('--test-maskedimage-path', type=str, default='./cat_face/masked_image', help='Path to testing image dataset.')
