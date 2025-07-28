@@ -83,7 +83,7 @@ class MaskGit(nn.Module):
     
 ##TODO3 step1-1: define one iteration decoding   
 @torch.no_grad()
-def inpainting(self, original_tokens, current_mask, total_masked, ratio, mask_func_name):
+def inpainting_step(self, original_tokens, current_mask, total_masked, ratio, mask_func_name):
     assert original_tokens.shape == current_mask.shape, f"Shape mismatch: tokens {original_tokens.shape}, mask {current_mask.shape}"
 
     masked_input_tokens = current_mask * self.mask_token_id + (~current_mask) * original_tokens
