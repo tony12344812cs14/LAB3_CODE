@@ -82,36 +82,36 @@ class MaskGit(nn.Module):
         return logits, z_indices
     
 ##TODO3 step1-1: define one iteration decoding   
-@torch.no_grad()
-def inpainting_step(self, original_tokens, current_mask, total_masked, ratio, mask_func_name):
-    assert original_tokens.shape == current_mask.shape, f"Shape mismatch: tokens {original_tokens.shape}, mask {current_mask.shape}"
+    @torch.no_grad()
+    def inpainting(self, original_tokens, current_mask, total_masked, ratio, mask_func_name):
+        assert original_tokens.shape == current_mask.shape, f"Shape mismatch: tokens {original_tokens.shape}, mask {current_mask.shape}"
 
-    masked_input_tokens = current_mask * self.mask_token_id + (~current_mask) * original_tokens
-    logits = self.transformer(masked_input_tokens)
-    probs = torch.softmax(logits, dim=-1)
+        masked_input_tokens = current_mask * self.mask_token_id + (~current_mask) * original_tokens
+        logits = self.transformer(masked_input_tokens)
+        probs = torch.softmax(logits, dim=-1)
 
-    predicted_tokens = torch.distributions.Categorical(logits=logits).sample()
-    while torch.any(predicted_tokens == self.mask_token_id):
         predicted_tokens = torch.distributions.Categorical(logits=logits).sample()
+        while torch.any(predicted_tokens == self.mask_token_id):
+            predicted_tokens = torch.distributions.Categorical(logits=logits).sample()
 
-    predicted_tokens = (current_mask * predicted_tokens + (~current_mask) * original_tokens).clone()
+        predicted_tokens = (current_mask * predicted_tokens + (~current_mask) * original_tokens).clone()
 
-    predicted_probs = probs.gather(-1, predicted_tokens.unsqueeze(-1)).squeeze(-1)
-    predicted_probs = torch.where(current_mask, predicted_probs, torch.full_like(predicted_probs, float('inf')))
+        predicted_probs = probs.gather(-1, predicted_tokens.unsqueeze(-1)).squeeze(-1)
+        predicted_probs = torch.where(current_mask, predicted_probs, torch.full_like(predicted_probs, float('inf')))
 
-    mask_ratio = self.gamma_func(mask_func_name)(ratio)
-    tokens_to_remask = torch.floor(total_masked * mask_ratio).long()
+        mask_ratio = self.gamma_func(mask_func_name)(ratio)
+        tokens_to_remask = torch.floor(total_masked * mask_ratio).long()
 
-    gumbel_noise = torch.distributions.gumbel.Gumbel(0, 1).sample(predicted_probs.shape).to(predicted_probs.device)
-    temperature = self.choice_temperature * (1 - mask_ratio)
-    noisy_confidence = predicted_probs + temperature * gumbel_noise
+        gumbel_noise = torch.distributions.gumbel.Gumbel(0, 1).sample(predicted_probs.shape).to(predicted_probs.device)
+        temperature = self.choice_temperature * (1 - mask_ratio)
+        noisy_confidence = predicted_probs + temperature * gumbel_noise
 
 
-    sorted_confidence = torch.sort(noisy_confidence, dim=-1)[0]
-    confidence_threshold = sorted_confidence[:, tokens_to_remask].unsqueeze(-1)
-    updated_mask = noisy_confidence < confidence_threshold
+        sorted_confidence = torch.sort(noisy_confidence, dim=-1)[0]
+        confidence_threshold = sorted_confidence[:, tokens_to_remask].unsqueeze(-1)
+        updated_mask = noisy_confidence < confidence_threshold
 
-    return predicted_tokens, updated_mask
+        return predicted_tokens, updated_mask
 
     
 __MODEL_TYPE__ = {
