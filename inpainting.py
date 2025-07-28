@@ -127,6 +127,9 @@ if __name__ == '__main__':
     #dataset path
     parser.add_argument('--test-maskedimage-path', type=str, default='./cat_face/masked_image', help='Path to testing image dataset.')
     parser.add_argument('--test-mask-path', type=str, default='./mask64', help='Path to testing mask dataset.')
+    parser.add_argument('--save-every-step', action='store_true', help='Save every iteration step.')
+    parser.add_argument('--show-mask-iter', action='store_true', help='Show mask per iteration.')
+
     #MVTM parameter
     parser.add_argument('--sweet-spot', type=int, default=10, help='sweet spot: the best step in total iteration')
     parser.add_argument('--total-iter', type=int, default=12, help='total step for mask scheduling')
